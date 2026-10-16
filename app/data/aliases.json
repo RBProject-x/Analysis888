@@ -1,0 +1,23 @@
+{
+  "Arsenal": ["Arsenal FC", "Gunners", "อาร์เซนอล"],
+  "Chelsea": ["Chelsea FC", "เชลซี"],
+  "Liverpool": ["Liverpool FC", "ลิเวอร์พูล"],
+  "Manchester United": ["Man Utd", "Man United", "Manchester Utd", "แมนเชสเตอร์ ยูไนเต็ด", "แมนยู"],
+  "Manchester City": ["Man City", "Manchester City FC", "แมนเชสเตอร์ ซิตี้", "แมนซิตี้"],
+  "Tottenham Hotspur": ["Tottenham", "Spurs", "ท็อตแนม", "สเปอร์ส"],
+  "Newcastle United": ["Newcastle", "นิวคาสเซิล"],
+  "Wolverhampton Wanderers": ["Wolves", "Wolverhampton"],
+  "Brighton & Hove Albion": ["Brighton", "Brighton and Hove Albion", "ไบรท์ตัน"],
+  "Nottingham Forest": ["Nott'm Forest", "Nottm Forest", "Forest"],
+  "West Ham United": ["West Ham", "เวสต์แฮม"],
+  "Real Madrid": ["Real Madrid CF", "เรอัล มาดริด"],
+  "FC Barcelona": ["Barcelona", "Barca", "บาร์เซโลนา"],
+  "Atlético de Madrid": ["Atletico Madrid", "Atletico", "อัตเลติโก มาดริด"],
+  "FC Bayern München": ["Bayern Munich", "Bayern", "บาเยิร์น มิวนิค"],
+  "Borussia Dortmund": ["Dortmund", "ดอร์ทมุนด์"],
+  "Paris Saint-Germain": ["PSG", "Paris Saint Germain", "ปารีส แซงต์-แชร์กแมง"],
+  "FC Internazionale Milano": ["Inter Milan", "Inter", "อินเตอร์ มิลาน"],
+  "AC Milan": ["Milan", "เอซี มิลาน"],
+  "Juventus": ["Juventus FC", "ยูเวนตุส"],
+  "SSC Napoli": ["Napoli", "นาโปลี"]
+}
