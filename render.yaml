@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: football-analyzer
+    runtime: docker
+    plan: starter
+    healthCheckPath: /healthz
+    envVars:
+      - key: FOOTBALL_DATA_TOKEN
+        sync: false
+      - key: ODDS_API_KEY
+        sync: false
+      - key: DB_PATH
+        value: /data/odds.db
+    disk:
+      name: odds-data
+      mountPath: /data
+      sizeGB: 1
