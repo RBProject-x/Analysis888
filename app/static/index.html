@@ -45,18 +45,17 @@ th:first-child,td:first-child{text-align:left}
 .mut{color:var(--mut);font-size:13px}
 ul.meta{margin:0;padding-left:18px;font-size:14px;color:var(--mut)}
 .foot{font-size:12px;color:var(--mut);margin-top:18px}
+.alert{border-color:#f59e0b;background:#fff7ed}.alert h2{color:var(--warn)}.pill{font-size:12px}
 </style>
 </head>
 <body>
 <main>
 <h1>วิเคราะห์ฟุตบอล</h1>
-<p class="sub">พิมพ์ชื่อทีมเป็นภาษาอังกฤษจะให้ผลแม่นที่สุด เช่น Arsenal, Man Utd หรือ Spurs · ผลทั้งหมดเป็นการคาดการณ์</p>
+<p class="sub">พิมพ์ชื่อทีมเป็นภาษาอังกฤษจะให้ผลแม่นที่สุด ระบบค้นหาข้าม Premier League, La Liga, Serie A, Bundesliga, Ligue 1 และ Champions League · ผลทั้งหมดเป็นการคาดการณ์</p>
 
 <section class="card">
-  <div class="row">
-    <div><label for="comp">รายการแข่งขัน</label><select id="comp"></select></div>
-    <div><label for="q">ค้นหาทีม</label><input id="q" placeholder="เช่น Arsenal" autocomplete="off"></div>
-  </div>
+  <label for="q">ค้นหาทีม (พิมพ์ชื่อทีมได้เลย ไม่ต้องเลือกลีก)</label>
+  <input id="q" placeholder="เช่น Arsenal, Man Utd, Real Madrid" autocomplete="off">
   <div id="teams" class="list"></div>
 </section>
 
@@ -74,8 +73,8 @@ ul.meta{margin:0;padding-left:18px;font-size:14px;color:var(--mut)}
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtT = ts => ts ? new Date(ts * 1000).toLocaleString('th-TH', {dateStyle: 'medium', timeStyle: 'short'}) : '-';
-const RES = {W: 'ช', D: 'ส', L: 'พ'};
-let comp = 'PL', team = null, timer = null;
+const RES = {W: 'W', D: 'D', L: 'L'};
+let team = null, timer = null;
 
 async function api(path) {
   const r = await fetch(path);
@@ -84,22 +83,17 @@ async function api(path) {
   return j;
 }
 
-async function init() {
-  const list = await api('/api/competitions');
-  $('comp').innerHTML = list.map(c => `<option value="${esc(c.code)}">${esc(c.name)}</option>`).join('');
-}
-
-$('comp').onchange = () => { comp = $('comp').value; team = null; $('fixSec').classList.add('hidden'); $('res').innerHTML = ''; search(); };
 $('q').oninput = () => { clearTimeout(timer); timer = setTimeout(search, 300); };
 
 async function search() {
   const q = $('q').value.trim();
   if (q.length < 2) { $('teams').innerHTML = ''; return; }
   try {
-    const {teams} = await api(`/api/teams?competition=${encodeURIComponent(comp)}&q=${encodeURIComponent(q)}`);
-    $('teams').innerHTML = teams.length
-      ? teams.map(t => `<button data-id="${t.id}" data-name="${esc(t.name)}">${esc(t.name)}</button>`).join('')
-      : '<p class="mut">ไม่พบทีมนี้ในรายการที่เลือก ลองพิมพ์ชื่อภาษาอังกฤษเต็ม หรือเปลี่ยนรายการแข่งขัน</p>';
+    const {teams, skipped} = await api(`/api/teams?q=${encodeURIComponent(q)}`);
+    const note = skipped.length ? `<p class="mut">หมายเหตุ: ดึงข้อมูลบางลีกไม่ได้ (แพ็กเกจอาจไม่รวม): ${skipped.map(esc).join(', ')}</p>` : '';
+    $('teams').innerHTML = (teams.length
+      ? teams.map(t => `<button data-id="${t.id}" data-name="${esc(t.name)}">${esc(t.name)} ${t.comps.map(c => `<span class="pill">${esc(c)}</span>`).join('')}</button>`).join('')
+      : '<p class="mut">ไม่พบทีมนี้ ลองพิมพ์ชื่อภาษาอังกฤษเต็ม เช่น Manchester United</p>') + note;
   } catch (e) { $('teams').innerHTML = `<div class="warnbox">${esc(e.message)}</div>`; }
 }
 
@@ -115,9 +109,9 @@ async function loadFixtures() {
   $('fixSec').classList.remove('hidden');
   $('fix').innerHTML = '<p class="mut">กำลังโหลด...</p>';
   try {
-    const {fixtures} = await api(`/api/fixtures?competition=${encodeURIComponent(comp)}&team_id=${team.id}`);
+    const {fixtures} = await api(`/api/fixtures?team_id=${team.id}`);
     $('fix').innerHTML = fixtures.length
-      ? fixtures.map(f => `<button data-m="${f.id}">${fmtT(Date.parse(f.utc) / 1000)} · ${esc(f.home)} vs ${esc(f.away)}</button>`).join('')
+      ? fixtures.map(f => `<button data-m="${f.id}"><small>${esc(f.competition_name)}</small><br>${fmtT(Date.parse(f.utc) / 1000)} · ${esc(f.home)} vs ${esc(f.away)}</button>`).join('')
       : '<p class="mut">ยังไม่มีแมตช์ที่กำหนดการไว้</p>';
   } catch (e) { $('fix').innerHTML = `<div class="warnbox">${esc(e.message)}</div>`; }
 }
@@ -130,7 +124,7 @@ $('fix').onclick = e => {
 async function analyze(id) {
   $('res').innerHTML = '<div class="card"><p class="mut">กำลังคำนวณ...</p></div>';
   try {
-    const d = await api(`/api/analysis?competition=${encodeURIComponent(comp)}&match_id=${id}`);
+    const d = await api(`/api/analysis?match_id=${id}`);
     render(d);
     $('res').scrollIntoView({behavior: 'smooth', block: 'start'});
   } catch (e) { $('res').innerHTML = `<div class="card warnbox">${esc(e.message)}</div>`; }
@@ -145,8 +139,13 @@ function render(d) {
   const p = d.prediction, P = p.probs, m = d.match, mk = d.market, src = d.sources, c = d.confidence;
   const names = ['เหย้าชนะ', 'เสมอ', 'เยือนชนะ'], probs = [P.home, P.draw, P.away];
 
+  const alerts = (mk && mk.available && mk.alerts) ? mk.alerts : [];
+  const since = a => a.since ? `<br><small>เทียบตั้งแต่ ${fmtT(a.since)} (ราคาแรกที่แอปบันทึก ไม่ใช่ราคาเปิดจริงของเจ้ามือ)</small>` : '';
+  const alertBox = alerts.length ? `<section class="card alert"><h2>⚠️ ราคาขยับมาก</h2>${alerts.map(a => `<div class="sig warn"><b>${esc(a.title)}</b><br>${esc(a.detail)}${since(a)}</div>`).join('')}<small>ควรตรวจข่าวตัวจริงและผู้เล่นบาดเจ็บประกอบ การขยับของราคาไม่ได้บอกสาเหตุ</small></section>` : '';
+
   const hero = `
   <section class="card hero">
+    <div class="mut" style="margin-bottom:6px">${esc(m.competition_name || '')}</div>
     <div class="teams"><div>${esc(m.home)}</div><div class="mut">vs</div><div>${esc(m.away)}</div></div>
     <div class="score">${esc(p.most_likely_score.score)}</div>
     <div class="mut">สกอร์ที่มีโอกาสสูงสุด ${p.most_likely_score.p}% · เป็นการคาดการณ์ ไม่ใช่ผลจริง</div>
@@ -173,6 +172,7 @@ function render(d) {
 
   const form = `
   <section class="card"><h2>ฟอร์ม 5 นัดล่าสุด (ใหม่สุดก่อน)</h2>
+    <p class="mut" style="margin:0 0 8px">W = ชนะ · D = เสมอ · L = แพ้ (เอาเมาส์ชี้หรือแตะที่ตัวอักษรเพื่อดูคู่แข่งและสกอร์)</p>
     <div class="mut">${esc(m.home)}</div><div class="form">${formHtml(d.form.home)}</div>
     <div class="mut" style="margin-top:8px">${esc(m.away)}</div><div class="form">${formHtml(d.form.away)}</div>
   </section>`;
@@ -187,7 +187,8 @@ function render(d) {
           <td class="${mk.ev_pct[i] > 0 ? 'pos' : 'neg'}">${mk.ev_pct[i] > 0 ? '+' : ''}${mk.ev_pct[i]}%</td></tr>`).join('')}
       </table>
       <p class="mut" style="margin:8px 0 0">เทียบจาก ${mk.books} เจ้ามือ · ค่าเฉลี่ยหักส่วนต่างแล้ว · EV = โอกาสจากโมเดล × ราคา − 1 เป็นค่าประมาณตามสมมติฐานของโมเดลเท่านั้น</p>
-      ${mk.signals.map(s => `<div class="sig ${s.level}"><b>${esc(s.title)}</b><br>${esc(s.detail)}</div>`).join('')}
+      ${mk.handicap ? `<p class="mut" style="margin:8px 0 0">แฮนดิแคปปัจจุบัน (ฝั่งเหย้า): <b>${esc(mk.handicap.text)}</b> · ${mk.handicap.books} เจ้า</p>` : ''}
+      ${mk.signals.map(s => `<div class="sig ${s.level}"><b>${esc(s.title)}</b><br>${esc(s.detail)}${since(s)}</div>`).join('')}
     </section>`;
   } else {
     market = `<section class="card"><h2>ราคาตลาด</h2><p class="mut" style="margin:0">${esc(d.market_message || 'ไม่มีข้อมูลราคา')}</p></section>`;
@@ -206,11 +207,10 @@ function render(d) {
       <li>คำนวณเมื่อ: ${fmtT(d.generated_at)}</li>
     </ul></section>`;
 
-  $('res').innerHTML = hero + totals + form + market + confidence + status
+  $('res').innerHTML = alertBox + hero + totals + form + market + confidence + status
     + `<p class="foot">${esc(d.disclaimer)}</p>`;
 }
 
-init().catch(e => { $('teams').innerHTML = `<div class="warnbox">${esc(e.message)}</div>`; });
 </script>
 </body>
 </html>

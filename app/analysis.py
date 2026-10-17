@@ -13,8 +13,9 @@ def ts(utc: str) -> float:
     return datetime.fromisoformat(utc.replace("Z", "+00:00")).timestamp()
 
 
-def predict(finished, home_id, away_id):
-    lh, la, league_based = model.league_averages(finished)
+def predict(finished, home_id, away_id, league_finished=None):
+    lh, la, league_based = model.league_averages(
+        league_finished if league_finished is not None else finished)
     hr = model.team_rows(finished, home_id)
     ar = model.team_rows(finished, away_id)
     lam_h, lam_a = model.expected_goals(hr, ar, lh, la)
@@ -105,7 +106,9 @@ def movement_signals(hist):
                         "detail": f"ราคาของ{name} เคลื่อนสวนทางกันระหว่างเจ้ามือ ({ups} เจ้าขึ้น {downs} เจ้าลง)"})
         else:
             direction = "เพิ่มขึ้น" if mean > 0 else "ลดลง"
-            sig.append({"level": "ok", "title": "ตลาดเคลื่อนไหวไปทางเดียวกัน",
+            big = abs(mean) >= 5
+            sig.append({"level": "warn" if big else "ok", "big": big,
+                        "title": "ราคาขยับมาก" if big else "ตลาดเคลื่อนไหวไปทางเดียวกัน",
                         "detail": f"ความน่าจะเป็นของ{name} {direction} ประมาณ {abs(mean):.1f} จุด "
                                   f"เทียบกับราคาแรกที่แอปบันทึก"})
     if not sig:
@@ -128,12 +131,83 @@ def dispersion_signals(books, imp):
     return out[:3]
 
 
+def book_spreads(ev):
+    """แฮนดิแคปของทีมเหย้า: {key: (ชื่อเจ้า, เส้นแฮนดิแคปเหย้า, ราคาเหย้า, ราคาเยือน)}
+
+    เส้นเป็นลบ = เหย้าต่อ (เช่น -0.25) เป็นบวก = เหย้ารอง (เช่น +0.75)
+    """
+    out = {}
+    home_n, away_n = normalize(ev["home_team"]), normalize(ev["away_team"])
+    for bk in ev.get("bookmakers", []):
+        for mk in bk.get("markets", []):
+            if mk.get("key") != "spreads":
+                continue
+            d = {}
+            for o in mk.get("outcomes", []):
+                if "point" not in o:
+                    continue
+                n = normalize(o["name"])
+                if n == home_n:
+                    d["h"] = (o["point"], o["price"])
+                elif n == away_n:
+                    d["a"] = (o["point"], o["price"])
+            if len(d) == 2:
+                out[bk["key"]] = (bk.get("title", bk["key"]), d["h"][0], d["h"][1], d["a"][1])
+    return out
+
+
+def fmt_line(x):
+    if abs(x) < 1e-9:
+        return "0"
+    return f"{x:+.2f}".rstrip("0").rstrip(".")
+
+
+def line_text(x):
+    if abs(x) < 1e-9:
+        return "เสมอ (0)"
+    return f"{fmt_line(x)} (เหย้า{'ต่อ' if x < 0 else 'รอง'} {abs(x):g})"
+
+
+def spread_signals(hist):
+    """เทียบแฮนดิแคปแรกที่แอปบันทึกกับล่าสุด (ค่ากลางข้ามเจ้า)"""
+    first, last, t0 = [], [], None
+    for rows in hist.values():
+        if len(rows) < 2 or rows[0][0] == rows[-1][0]:
+            continue
+        first.append(rows[0][1])
+        last.append(rows[-1][1])
+        t0 = rows[0][0] if t0 is None else min(t0, rows[0][0])
+    if not first:
+        return []
+    o, c = median(first), median(last)
+    d = c - o
+    if abs(d) < 0.25 - 1e-9:
+        return [{"level": "ok", "title": "แฮนดิแคปนิ่ง", "since": t0,
+                 "detail": f"แฮนดิแคปเหย้าอยู่ที่ {line_text(c)} ไม่ขยับจากครั้งแรกที่บันทึก"}]
+    flip = o * c < 0
+    big = abs(d) >= 0.5 or flip
+    view = "ตลาดมองทีมเหย้าแย่ลง" if d > 0 else "ตลาดมองทีมเหย้าดีขึ้น"
+    detail = f"แรกที่บันทึก {line_text(o)} → ล่าสุด {line_text(c)} (เปลี่ยน {abs(d):g} ลูก) {view}"
+    if flip:
+        detail += " และสลับฝั่งต่อ-รอง"
+    return [{"level": "warn" if big else "info", "big": big, "since": t0,
+             "title": "แฮนดิแคปขยับมาก" if big else "แฮนดิแคปขยับเล็กน้อย", "detail": detail}]
+
+
+def record_odds(ev, store, match_id, odds_ts):
+    b = book_prices(ev)
+    if b:
+        store.record(match_id, odds_ts, [(k, v[1], v[2], v[3]) for k, v in b.items()])
+    s = book_spreads(ev)
+    if s:
+        store.record_spreads(match_id, odds_ts, [(k, v[1], v[2], v[3]) for k, v in s.items()])
+
+
 def market_block(ev, store, match_id, odds_ts, probs):
+    record_odds(ev, store, match_id, odds_ts)
     books = book_prices(ev)
     if not books:
         return {"available": False, "message": "ยังไม่มีราคา 1X2 จากแหล่งข้อมูลนี้"}
-
-    store.record(match_id, odds_ts, [(k, v[1], v[2], v[3]) for k, v in books.items()])
 
     imp = {k: implied(v[1:])[0] for k, v in books.items()}
     n = len(books)
@@ -145,9 +219,14 @@ def market_block(ev, store, match_id, odds_ts, probs):
     ev_pct = [round((probs[i] * best[i]["price"] - 1) * 100, 1) for i in range(3)]
     edge = [round((probs[i] - mean[i]) * 100, 1) for i in range(3)]
 
-    signals = movement_signals(store.history(match_id)) + dispersion_signals(books, imp)
+    signals = (spread_signals(store.spread_history(match_id))
+               + movement_signals(store.history(match_id)) + dispersion_signals(books, imp))
+    cur = [v[1] for v in book_spreads(ev).values()]
+    handicap = {"books": len(cur), "line": median(cur), "text": line_text(median(cur))} if cur else None
     return {
         "available": True,
+        "alerts": [s for s in signals if s.get("big")],
+        "handicap": handicap,
         "books": n,
         "fetched_at": odds_ts,
         "market_probs": [round(x * 100, 1) for x in mean],
@@ -159,7 +238,7 @@ def market_block(ev, store, match_id, odds_ts, probs):
     }
 
 
-def confidence(n_home, n_away, league_based, market):
+def confidence(n_home, n_away, league_based, market, note=None):
     pts, reasons = 0, []
     m = min(n_home, n_away)
     if m >= 8:
@@ -187,6 +266,8 @@ def confidence(n_home, n_away, league_based, market):
     else:
         reasons.append("ไม่มีราคาตลาดให้เทียบ")
 
+    if note:
+        reasons.append(note)
     reasons.append("ยังไม่มีข้อมูลรายชื่อตัวจริงที่ยืนยันแล้ว")
     level = "สูง" if pts >= 4 else "ปานกลาง" if pts >= 2 else "ต่ำ"
     return {"level": level, "reasons": reasons}

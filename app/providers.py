@@ -62,6 +62,8 @@ def _parse_match(m):
         "home_id": home.get("id"), "away_id": away.get("id"),
         "home_name": home.get("name") or "", "away_name": away.get("name") or "",
         "hg": ft.get("home"), "ag": ft.get("away"),
+        "home_short": home.get("shortName"), "away_short": away.get("shortName"),
+        "home_tla": home.get("tla"), "away_tla": away.get("tla"),
     }
 
 
@@ -108,19 +110,27 @@ class OddsAPI:
         self.key = key
         self.client = client
         self.cache = cache
+        # ขอตลาด spreads (แฮนดิแคป) พ่วงไปด้วย ถ้าแพ็กเกจไม่รองรับจะถอยกลับไปขอเฉพาะ 1X2
+        self.spreads_ok = True
+
+    async def _fetch(self, sport: str, markets: str):
+        try:
+            return await self.client.get(
+                f"{ODDS_BASE}/sports/{sport}/odds",
+                params={"apiKey": self.key, "regions": "eu", "markets": markets,
+                        "oddsFormat": "decimal", "dateFormat": "iso"},
+                timeout=20)
+        except httpx.HTTPError as e:
+            raise UpstreamError("เชื่อมต่อ The Odds API ไม่ได้ ลองใหม่อีกครั้ง") from e
 
     async def events(self, sport: str):
         async def load():
             if not self.key:
                 raise UpstreamError("ยังไม่ได้ตั้งค่า ODDS_API_KEY จึงยังไม่มีข้อมูลราคา")
-            try:
-                r = await self.client.get(
-                    f"{ODDS_BASE}/sports/{sport}/odds",
-                    params={"apiKey": self.key, "regions": "eu", "markets": "h2h",
-                            "oddsFormat": "decimal", "dateFormat": "iso"},
-                    timeout=20)
-            except httpx.HTTPError as e:
-                raise UpstreamError("เชื่อมต่อ The Odds API ไม่ได้ ลองใหม่อีกครั้ง") from e
+            r = await self._fetch(sport, "h2h,spreads" if self.spreads_ok else "h2h")
+            if r.status_code == 422 and self.spreads_ok:
+                self.spreads_ok = False
+                r = await self._fetch(sport, "h2h")
             if r.status_code in (401, 403):
                 raise UpstreamError("The Odds API key ไม่ถูกต้อง หรือสิทธิ์ไม่ครอบคลุมรายการนี้")
             if r.status_code == 429:
